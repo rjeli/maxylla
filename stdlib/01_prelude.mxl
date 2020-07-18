@@ -10,3 +10,5 @@ SetAttributes[OwnValues,HoldAll];
 
 CompoundExpression[_,x_]:=x;
 Head[h_[xs___]]:=h;
+Length[f_[x_,xs___]]:=1+Length[f[xs]];
+Length[_[]]:=0;

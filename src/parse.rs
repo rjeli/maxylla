@@ -29,7 +29,7 @@ impl Expr {
 
 // https://reference.wolfram.com/language/tutorial/OperatorInputForms.html
 peg::parser! { pub grammar maxylla_parser() for str {
-    rule _() = [' ' | '\n']*
+    rule _() = (" " / "\n" / ("(*" (!("*)") [_])* "*)"))*
     rule letters() -> &'input str = $(['a'..='z'|'A'..='Z']+)
     rule blank() -> Expr = us:$("_"*<1,3>) ms:sym()? {
         let mut v = match us.len() {

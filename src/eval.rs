@@ -462,7 +462,7 @@ impl Env {
                 let (patt_head, patt_args) = patt.split_first().unwrap();
                 let patt_sym = match patt_head.clone() {
                     Expr::Sym(s) => Ok(s),
-                    _ => Err(EvalError::new("bad patt head")),
+                    otherwise => Err(EvalError::new(&format!("bad patt head: {:?}", otherwise))),
                 }?;
                 match &patt_sym[..] {
                     "Blank" => match &patt_args[..] {
