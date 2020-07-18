@@ -1,0 +1,12 @@
+SetAttributes[Hold,HoldAll];
+SetAttributes[HoldPattern,HoldAll];
+SetAttributes[Set,HoldFirst];
+SetAttributes[SetDelayed,HoldAll];
+SetAttributes[RuleDelayed,HoldRest];
+SetAttributes[Plus,{Flat,Orderless,OneIdentity}];
+SetAttributes[Times,{Flat,Orderless,OneIdentity}];
+SetAttributes[Or,{Flat,HoldAll,OneIdentity}];
+SetAttributes[OwnValues,HoldAll];
+
+CompoundExpression[_,x_]:=x;
+Head[h_[xs___]]:=h;

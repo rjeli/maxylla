@@ -1,0 +1,35 @@
+_
+= Blank[]
+
+_Integer
+= Blank[Integer]
+
+x_
+= Pattern[x,Blank[]]
+
+x_Integer
+= Pattern[x,Blank[Integer]]
+
+__
+= BlankSequence[]
+
+__Integer
+= BlankSequence[Integer]
+
+x__
+= Pattern[x,BlankSequence[]]
+
+x__Integer
+= Pattern[x,BlankSequence[Integer]]
+
+___
+= BlankNullSequence[]
+
+___Integer
+= BlankNullSequence[Integer]
+
+x___
+= Pattern[x,BlankNullSequence[]]
+
+x___Integer
+= Pattern[x,BlankNullSequence[Integer]]
