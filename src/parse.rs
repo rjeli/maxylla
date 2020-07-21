@@ -1,36 +1,9 @@
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub enum Expr {
-    Sym(String),
-    Num(i32),
-    Form(Vec<Expr>),
-}
-
-#[macro_export]
-macro_rules! f {
-    ( $h:expr $(, $t:expr )* $(,)? ) => (
-        Expr::Form(vec![Expr::Sym(stringify!($h).to_string()), $( $t ),* ])
-    );
-}
-// (
-
-#[macro_export]
-macro_rules! s {
-    ( $s:expr ) => {
-        Expr::Sym(stringify!($s).to_string())
-    };
-}
-// (
-
-impl Expr {
-    pub fn null() -> Expr {
-        s!(Null)
-    }
-}
+use crate::{f, s, types::Expr};
 
 // https://reference.wolfram.com/language/tutorial/OperatorInputForms.html
 peg::parser! { pub grammar maxylla_parser() for str {
     rule _() = (" " / "\n" / ("(*" (!("*)") [_])* "*)"))*
-    rule letters() -> &'input str = $(['a'..='z'|'A'..='Z']+)
+    rule letters() -> &'input str = $(['a'..='z'|'A'..='Z'|'`']+)
     rule blank() -> Expr = us:$("_"*<1,3>) ms:sym()? {
         let mut v = match us.len() {
             1 => vec![s!(Blank)],

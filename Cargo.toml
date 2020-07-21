@@ -6,8 +6,10 @@ edition = "2018"
 
 [dependencies]
 peg = "0.6.2"
+clap = "2.33.1"
 glob = "0.3.0"
 termcolor = "1.1"
+rustyline = "6.2.0"
 lazy_static = "1.4.0"
 strum = "0.18.0"
 strum_macros = "0.18.0"

@@ -3,8 +3,10 @@ use std::error::Error;
 use std::{fmt, fs, result};
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 
-use maxylla::eval::Env;
-use maxylla::parse::{parse, Expr};
+use maxylla::{
+    parse::parse,
+    types::{Env, Expr},
+};
 
 #[derive(Debug)]
 struct SuiteErr {
