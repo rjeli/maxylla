@@ -4,7 +4,8 @@ use std::default::Default;
 use std::fs;
 use std::str::FromStr;
 
-use crate::{f, f_args, n, parse::parse, s, types::*};
+use crate::pattern::run_unify;
+use crate::{parse::parse, s, types::*};
 
 impl Env {
     fn bare() -> Env {
@@ -38,17 +39,14 @@ impl Env {
         match e {
             Expr::Form(es) => {
                 let (head, args) = es.split_first().ok_or(EvalError::new("no head"))?;
-                if let Expr::Sym(prim_head) = head {
-                    if prim_head.starts_with("Prim`") {
-                        return self.eval_prim(prim_head, args);
-                    }
-                }
                 let head = self.eval_at(head, depth + 1)?;
                 let head_sym = match head.clone() {
                     Expr::Sym(s) => Ok(s),
                     _ => Err(EvalError::new(&format!("head not a sym: {:?}", head))),
                 }?;
                 /* flatten sequences (?) */
+                let args = Expr::flatten_seqs(args);
+                /*
                 let args = args
                     .iter()
                     .flat_map(|a| match a {
@@ -65,6 +63,11 @@ impl Env {
                         _ => vec![a.clone()].into_iter(),
                     })
                     .collect::<Vec<_>>();
+                */
+                /* dispatch to prim */
+                if head_sym.starts_with("Prim`") {
+                    return self.eval_prim(&head_sym, &args);
+                }
                 /* evaluate args */
                 let args = if self.has_attr(&head_sym, Attr::HoldAll) {
                     args.to_vec()
@@ -93,36 +96,41 @@ impl Env {
                 let mut v = vec![head];
                 v.extend(args.clone());
                 let expr = Expr::Form(v);
-                // println!("evaluating: {:?}", expr);
+                // now expr is our canonical expression to eval.
+                println!("evaluating: {}", expr);
                 if let Some(downs) = self.downs.get(&head_sym) {
-                    // println!("downs: {:?}", downs);
+                    println!("downs:");
+                    for (lhs, rhs) in downs {
+                        println!("  {} -> {}", lhs, rhs);
+                    }
                     let mut candidates = vec![];
                     for (lhs, rhs) in downs {
-                        if let Some(info) = self.run_unify(lhs, &expr)? {
-                            candidates.push((info, rhs));
+                        if let Some(subs) = run_unify(lhs, &expr)? {
+                            candidates.push((subs, rhs));
                         }
                     }
-                    // println!("cands: {:?}", candidates);
-                    if let Some((info, rhs)) = candidates.iter().max_by_key(|e| &e.0) {
-                        // println!("applying bindings {:?} to {:?}", &info.bindings, rhs);
-                        let bound = self.apply_bindings(rhs, &info.bindings)?;
-                        // println!("bound: {:?}", bound);
-                        return self.eval(&bound);
+                    println!("cands:");
+                    for (subs, rhs) in &candidates {
+                        println!("  {} with {:?}", rhs, subs);
                     }
-                    // let matches = downs.iter().map(|(lhs, rhs)| self.unify(lhs, expr));
+                    if let Some((subs, rhs)) = candidates.first() {
+                        let reified = subs.replace(&rhs);
+                        println!("reified: {}", reified);
+                        let reiflats = Expr::flatten_seqs(&[reified]);
+                        let reiflat = reiflats.first().unwrap();
+                        println!("reiflat: {}", reiflat);
+                        return self.eval(&reiflat);
+                    }
                 }
-                // println!("eval: {:?} {:?}", head, args);
-                /*
-                if let Some(result) = self.eval_builtins(&head_sym, &args)? {
-                    return Ok(result);
-                }
-                */
                 Ok(expr)
             }
-            Expr::Sym(s) => match self.owns.get(s).map(|e2| e2.clone()) {
-                Some(e2) => self.eval_at(&e2, depth + 1),
-                None => Ok(e.clone()),
-            },
+            Expr::Sym(s) => {
+                let own = self.owns.get(s).map(|e2| e2.clone());
+                match own {
+                    Some(e2) => self.eval_at(&e2, depth + 1),
+                    None => Ok(Expr::Sym(s.clone())),
+                }
+            }
             Expr::Num(_) => Ok(e.clone()),
         }
     }
@@ -178,6 +186,7 @@ impl Env {
                         .get_mut(s)
                         .unwrap()
                         .push((args[1].clone(), args[2].clone()));
+                    println!("added downval on: {} {} {}", args[0], args[1], args[2]);
                     Ok(Expr::null())
                 } else {
                     Err(EvalError::new("bad adddownvalue lhs (not sym)"))
@@ -202,6 +211,15 @@ impl Env {
                 } else {
                     Err(EvalError::new("bad settrace arg (not sym)"))
                 }
+            }
+            "Prim`PrintDownValues" => {
+                for (s, downs) in &self.downs {
+                    println!("{}: ", s);
+                    for (lhs, rhs) in downs {
+                        println!("  {} -> {}", lhs, rhs);
+                    }
+                }
+                Ok(Expr::null())
             }
             _ => Err(EvalError::new(&format!(
                 "no such primitive: {:?}",
@@ -350,6 +368,8 @@ impl Env {
             }
         }
     */
+
+    /*
 
     fn replace(&self, expr: &Expr, lhs: &Expr, rhs: &Expr) -> EvalResult<Expr> {
         match self.run_unify(lhs, expr)? {
@@ -568,6 +588,7 @@ impl Env {
                     }
         */
     }
+    */
 }
 
 #[cfg(test)]

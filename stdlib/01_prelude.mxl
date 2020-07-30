@@ -10,8 +10,11 @@ Prim`SetAttributes[OwnValues,{HoldAll}];
 
 (* Prim`SetTrace[True]; *)
 
+LineOne[];
 Prim`AddDownValue[SetDelayed,SetDelayed[f_[xs___],rhs_],Prim`AddDownValue[f,f[xs],rhs]];
+LineTwo[];
 SetDelayed[s_,x_]:=Prim`AddOwnValue[s,x];
+LineThree[];
 
 (*
 CompoundExpression[_,x_]:=x;

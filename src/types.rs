@@ -20,8 +20,9 @@ macro_rules! f {
 #[macro_export]
 macro_rules! f_args {
     ( $h:expr, $t:expr ) => {{
-        let mut v = vec![s!($h)];
-        v.extend_from_slice($t);
+        let mut v: Vec<Expr> = vec![s!($h)];
+        // v.extend_from_slice($t);
+        v.extend($t);
         Expr::Form(v)
     }};
 }
@@ -41,6 +42,14 @@ macro_rules! n {
     };
 }
 
+// have to import parse::parse for this
+#[macro_export]
+macro_rules! p {
+    ( $s:expr ) => {
+        parse($s).unwrap()
+    };
+}
+
 impl Expr {
     pub fn null() -> Expr {
         s!(Null)
@@ -48,19 +57,60 @@ impl Expr {
     pub fn display(&self) -> String {
         match self {
             Expr::Form(es) => match es.split_first() {
-                Some((h, args)) => format!(
-                    "{}[{}]",
-                    h.display(),
-                    args.iter()
-                        .map(|a| a.display())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ),
-                None => "EMPTYFORM".to_owned(),
+                Some((h, args)) => {
+                    if let Some(true) = h.as_sym().map(|s| s == "CompoundExpression") {
+                        args.iter()
+                            .map(|a| a.display())
+                            .collect::<Vec<_>>()
+                            .join("; ")
+                    } else {
+                        format!(
+                            "{}[{}]",
+                            h.display(),
+                            args.iter()
+                                .map(|a| a.display())
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        )
+                    }
+                }
+                None => "$EMPTYFORM".to_owned(),
             },
             Expr::Sym(s) => s.clone(),
             Expr::Num(n) => format!("{}", n),
         }
+    }
+    pub fn as_sym(&self) -> Option<&str> {
+        match self {
+            Expr::Sym(s) => Some(s),
+            _ => None,
+        }
+    }
+    pub fn as_form(&self) -> Option<&Vec<Expr>> {
+        match self {
+            Expr::Form(es) => Some(es),
+            _ => None,
+        }
+    }
+    pub fn flatten_seqs(exprs: &[Expr]) -> Vec<Expr> {
+        let mut v: Vec<Expr> = vec![];
+        for e in exprs {
+            match e {
+                Expr::Form(es) => {
+                    let (head, args) = es.split_first().unwrap();
+                    if let Some("Sequence") = head.as_sym() {
+                        v.extend(Expr::flatten_seqs(args));
+                    } else {
+                        let mut e2: Vec<Expr> = vec![];
+                        e2.push(head.clone());
+                        e2.extend(Expr::flatten_seqs(args));
+                        v.push(Expr::Form(e2));
+                    }
+                }
+                _ => v.push(e.clone()),
+            }
+        }
+        v
     }
 }
 impl fmt::Display for Expr {
@@ -110,22 +160,22 @@ impl std::error::Error for EvalError {}
 pub type EvalResult<T> = std::result::Result<T, EvalError>;
 
 #[derive(Default, Debug, PartialEq, Eq, Clone)]
-pub struct MatchInfo {
-    pub expr: Expr,
-    pub bindings: HashMap<String, Expr>,
-    pub max_nest: i32,
-    pub num_constants: i32,
+pub struct Subs {
+    pub subs: HashMap<String, Expr>,
+    // pub num_constants: i32,
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum MatchError {
+pub enum UnifyError {
     Failure,
     Error(EvalError),
 }
 
-pub type MatchResultT<T> = std::result::Result<T, MatchError>;
-pub type MatchResult = MatchResultT<(MatchInfo, usize)>;
+pub type UnifyResultT<T> = std::result::Result<T, UnifyError>;
+pub type UnifyResult = UnifyResultT<Subs>;
 
+/*
 pub struct Unification {
     pub env: Env,
 }
+*/
