@@ -86,10 +86,27 @@ impl Expr {
             _ => None,
         }
     }
+    pub fn as_num(&self) -> Option<i32> {
+        match self {
+            Expr::Num(n) => Some(*n),
+            _ => None,
+        }
+    }
     pub fn as_form(&self) -> Option<&Vec<Expr>> {
         match self {
             Expr::Form(es) => Some(es),
             _ => None,
+        }
+    }
+    pub fn head(&self) -> Option<String> {
+        match self {
+            Expr::Sym(_) => Some("Symbol".to_owned()),
+            Expr::Num(_) => Some("Integer".to_owned()),
+            Expr::Form(es) => es
+                .first()
+                .map(|e| e.as_sym())
+                .flatten()
+                .map(|e| e.to_owned()),
         }
     }
     pub fn flatten_seqs(exprs: &[Expr]) -> Vec<Expr> {
@@ -162,7 +179,7 @@ pub type EvalResult<T> = std::result::Result<T, EvalError>;
 #[derive(Default, Debug, PartialEq, Eq, Clone)]
 pub struct Subs {
     pub subs: HashMap<String, Expr>,
-    // pub num_constants: i32,
+    pub num_constants: i32,
 }
 
 #[derive(Debug, PartialEq, Eq)]

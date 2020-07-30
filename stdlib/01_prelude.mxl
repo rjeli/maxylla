@@ -1,24 +1,80 @@
 Prim`SetAttributes[Hold,{HoldAll}];
 Prim`SetAttributes[HoldPattern,{HoldAll}];
 Prim`SetAttributes[Set,{HoldFirst}];
-Prim`SetAttributes[SetDelayed,{HoldAll}];
 Prim`SetAttributes[RuleDelayed,{HoldRest}];
-Prim`SetAttributes[Plus,{Flat,Orderless,OneIdentity}];
-Prim`SetAttributes[Times,{Flat,Orderless,OneIdentity}];
 Prim`SetAttributes[Or,{Flat,HoldAll,OneIdentity}];
-Prim`SetAttributes[OwnValues,{HoldAll}];
 
 (* Prim`SetTrace[True]; *)
 
-LineOne[];
-Prim`AddDownValue[SetDelayed,SetDelayed[f_[xs___],rhs_],Prim`AddDownValue[f,f[xs],rhs]];
-LineTwo[];
-SetDelayed[s_,x_]:=Prim`AddOwnValue[s,x];
-LineThree[];
+(* Bootstrap SetDelayed *)
 
-(*
-CompoundExpression[_,x_]:=x;
+Prim`SetAttributes[Prim`AddDownValue,{HoldRest}];
+Prim`SetAttributes[SetDelayed,{HoldAll}];
+Prim`AddDownValue[SetDelayed,SetDelayed[f_[xs___],rhs_],Prim`AddDownValue[f,f[xs],rhs]];
+SetDelayed[s_,x_]:=Prim`AddOwnValue[s,x];
+(* SetDelayed[Condition[f_[xs___],cond_],rhs_]:=Prim`AddDownValue[f,Condition[f[xs],cond],rhs]; *)
+SetDelayed[c_Condition,rhs___]:=Prim`AddDownValue[Head[First[c]],c,rhs];
+SetDelayed[{xs___},{rhs___}]:=ZipWith[SetDelayed,{xs},{rhs}];
+
+(* Core functions *)
+
+Apply[f_,h_[xs___]]:=f[xs];
+Cons[x_,{xs___}]:={x,xs};
+Map[f_,{x_,xs___}]:=Cons[f[x],Map[f,{xs}]];
+Map[f_,{}]:={};
+Prim`SetAttributes[MatchQ,{HoldRest}];
+MatchQ[x_,patt_]:=Replace[x,patt->MatchQSentinel]==MatchQSentinel;
 Head[h_[xs___]]:=h;
-Length[f_[x_,xs___]]:=1+Length[f[xs]];
-Length[_[]]:=0;
-*)
+First[h_[x_,xs___]]:=x;
+Rest[h_[x_,xs___]]:=h[xs];
+Length[h_[x_,xs___]]:=1+Length[h[xs]];
+Length[h_[]]:=0;
+Repeat[x_,0]:={};
+Repeat[x_,n_]:=Cons[x,Repeat[x,n-1]];
+NestList[f_,x_,0]:={x};
+NestList[f_,x_,n_]:=Cons[x,f/@NestList[f,x,n-1]];
+Eval[Hold[x_]]:=x;
+ZipWith[f_,{x_,xs___},{y_,ys___}]:=Cons[f[x,y],ZipWith[f,{xs},{ys}]];
+ZipWith[_,_,_]:={};
+
+(* Prim wrappers *)
+
+Prim`SetAttributes[OwnValues,{HoldAll}];
+Prim`SetAttributes[Prim`OwnValues,{HoldAll}];
+OwnValues[x_]:=Prim`OwnValues[x];
+DownValues[x_]:=Prim`DownValues[x];
+
+Replace[x_,Rule[lhs_,rhs_]]:=Prim`Replace[x,lhs,rhs];
+
+ReplaceAll[x_,Rule[lhs_,rhs_]] /; MatchQ[x,lhs] := Replace[x,lhs->rhs];
+
+(* ReplaceAll[f_[xs___],rule_] := f @ Replace[#,rule]& /@ {xs}; *)
+MapReplace[rule_,x_,xs___]:=Cons[Replace[x,rule],MapReplace[rule,xs]];
+MapReplace[rule_]:={};
+ReplaceAll[f_[xs___],rule_] := f @@ MapReplace[rule,xs];
+ReplaceAll[x_,_]:=x;
+
+ReplaceRepeated[x_,rule_]:=ReplaceRepeatedTwo[rule,x,ReplaceAll[x,rule]];
+ReplaceRepeatedTwo[rule_,same_,same_]:=same;
+ReplaceRepeatedTwo[rule_,last_,cur_]:=ReplaceRepeatedTwo[rule,cur,ReplaceAll[cur,rule]];
+
+Greater[x_Integer,y_Integer]:=Prim`Cmp[x,y]==GT;
+Less[x_Integer,y_Integer]:=Prim`Cmp[x,y]==LT;
+
+(* Logic *)
+
+Equal[x_,x_]:=True;
+Equal[_,_]:=False;
+And[True,True]:=True;
+And[_,_]:=False;
+Or[False,False]:=False;
+Or[_,_]:=True;
+Not[True]:=False;
+Not[False]:=True;
+
+(* Math *)
+
+Prim`SetAttributes[Plus,{Flat,Orderless,OneIdentity}];
+Prim`SetAttributes[Times,{Flat,Orderless,OneIdentity}];
+Plus[x_Integer,y_Integer]:=Prim`Plus[x,y];
+Times[x_Integer,y_Integer]:=Prim`Times[x,y];

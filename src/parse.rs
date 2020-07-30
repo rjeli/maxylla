@@ -17,6 +17,7 @@ peg::parser! { pub grammar maxylla_parser() for str {
         };
         Expr::Form(v)
     }
+    rule slot() -> Expr = "#" { f![Slot, n!(1)] }
     rule sym() -> Expr = ls:letters() mb:blank()? {
         let s = Expr::Sym(ls.to_owned());
         match mb {
@@ -44,6 +45,9 @@ peg::parser! { pub grammar maxylla_parser() for str {
         --
         x:(@) "/;" _ y:@ { f![Condition, x, y] }
         --
+        x:(@) "|" _ y:@ { f![Alternatives, x, y] }
+        --
+        x:(@) "==" _ y:@ { f![Equal, x, y] }
         x:(@) ">" _ y:@ { f![Greater, x, y] }
         x:(@) "<" _ y:@ { f![Less, x, y] }
         --
@@ -51,11 +55,17 @@ peg::parser! { pub grammar maxylla_parser() for str {
         x:(@) "-" _ y:@ { f![Plus, x, f![Times, Expr::Num(-1), y]] }
         --
         x:(@) "*" _ y:@ { f![Times, x, y] }
+        x:(@) "/" _ y:@ { f![Times, x, f![Power, y, n!(-1)]] }
         x:(@) _ y:@ { f![Times, x, y] }
+        --
+        "-" _ x:(@) { f![Times, x, n!(-1)] }
         --
         x:@ "^" _ y:(@) { f![Power, x, y] }
         --
         x:@ "@" _ y:(@) { Expr::Form(vec![x, y]) }
+        --
+        x:@ "/@" _ y:(@) { f![Map, x, y] }
+        x:@ "@@" _ y:(@) { f![Apply, x, y] }
         --
         x:(@) "[" _ y:(expr() ** ("," _)) "]" _ {
             let mut v = vec![x];
@@ -66,6 +76,7 @@ peg::parser! { pub grammar maxylla_parser() for str {
         b:blank() _ { b }
         s:sym() _ { s }
         n:num() _ { Expr::Num(n) }
+        s:slot() _ { s }
         "{" _ xs:(expr() ** ("," _)) "}" _ {
             let mut v = vec![s!(List)];
             v.append(&mut xs.clone());
@@ -106,5 +117,9 @@ mod tests {
         "f[x]" => f![f, s!(x)];
         "f[x, y, z]" => f![f, s!(x), s!(y), s!(z)];
         "f[x, 1, 2]" => f![f, s!(x), Expr::Num(1), Expr::Num(2)];
+    );
+
+    parses!(lambdas:
+        "(x+#)&" => f![Function, f![Plus, s!(x), f![Slot, n!(1)]]];
     );
 }

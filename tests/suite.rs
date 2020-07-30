@@ -36,7 +36,7 @@ fn run_line(env: &mut Env, last: &mut Expr, line: &str) -> result::Result<bool, 
             Ok(true)
         } else {
             Err(Box::new(SuiteErr {
-                msg: format!("expected {:?}, but got {:?}", expected, last),
+                msg: format!("expected {}, but got {}", expected, last),
             }))
         }
     } else {

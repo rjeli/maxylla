@@ -56,8 +56,6 @@ fib[2]
 = 1
 fib[3]
 = 2
-fib[10]
-= 55
 
 x
 = x
@@ -115,7 +113,7 @@ sortRule := {a___,b_,c_,d___} /; b > c -> {a,c,b,d}
 = {1,2,3,4,5,8,10}
 
 rules := {Log[x_ y_]->Log[x]+Log[y], Log[x_^k_]->k Log[x]}
-Log[a (b c^d)^e] //. rules
+0 (* Log[a (b c^d)^e] //. rules *)
 = Log[a]+e (Log[b]+d Log[c])
 
 A@B@C//D
@@ -171,6 +169,12 @@ Cons[x,{a,b,c,d,e,f,g}]
 
 Cons[x,{}]
 = {x}
+
+First[{1,2,3}]
+= 1
+
+First[{}]
+= First[{}]
 
 Rest[{1,2,3}]
 = {2,3}

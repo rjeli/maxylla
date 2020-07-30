@@ -32,7 +32,7 @@ fn main() {
         match readline {
             Ok(line) => {
                 rl.add_history_entry(line.as_str());
-                println!("line: {}", line);
+                // println!("line: {}", line);
                 match parse(&line) {
                     Ok(parsed) => match env.eval(&parsed) {
                         Ok(res) => {
