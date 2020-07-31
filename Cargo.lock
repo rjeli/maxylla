@@ -197,6 +197,7 @@ dependencies = [
  "lazy_static",
  "maplit",
  "peg",
+ "permutohedron",
  "rustyline",
  "strum",
  "strum_macros",
@@ -248,6 +249,12 @@ name = "peg-runtime"
 version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c1a2897e69d986c7986747ebad425cf03746ec5e3e09bb3b2600f91301ba864"
+
+[[package]]
+name = "permutohedron"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b687ff7b5da449d39e418ad391e5e08da53ec334903ddbb921db208908fc372c"
 
 [[package]]
 name = "proc-macro2"

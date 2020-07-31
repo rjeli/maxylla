@@ -35,7 +35,7 @@ peg::parser! { pub grammar maxylla_parser() for str {
         --
         x:(@) "//" _ y:@ { Expr::Form(vec![y, x]) }
         --
-        x:@ "&" _ { f![Function, x] }
+        x:(@) "&" !"&" _ { f![Function, x] }
         --
         x:(@) "/." _ y:@ { f![ReplaceAll, x, y] }
         x:(@) "//." _ y:@ { f![ReplaceRepeated, x, y] }
@@ -46,6 +46,10 @@ peg::parser! { pub grammar maxylla_parser() for str {
         x:(@) "/;" _ y:@ { f![Condition, x, y] }
         --
         x:(@) "|" _ y:@ { f![Alternatives, x, y] }
+        --
+        x:(@) "||" _ y:@ { f![Or, x, y] }
+        --
+        x:(@) "&&" _ y:@ { f![And, x, y] }
         --
         x:(@) "==" _ y:@ { f![Equal, x, y] }
         x:(@) ">" _ y:@ { f![Greater, x, y] }
@@ -58,7 +62,7 @@ peg::parser! { pub grammar maxylla_parser() for str {
         x:(@) "/" _ y:@ { f![Times, x, f![Power, y, n!(-1)]] }
         x:(@) _ y:@ { f![Times, x, y] }
         --
-        "-" _ x:(@) { f![Times, x, n!(-1)] }
+        "-" x:(@) { f![Times, x, n!(-1)] }
         --
         x:@ "^" _ y:(@) { f![Power, x, y] }
         --
@@ -84,10 +88,11 @@ peg::parser! { pub grammar maxylla_parser() for str {
         }
         "(" _ x:expr() ")" _ { x }
     }
+    pub rule prog() -> Expr = _ e:expr() { e }
 }}
 
 pub fn parse(s: &str) -> std::result::Result<Expr, Box<dyn std::error::Error>> {
-    maxylla_parser::expr(s).map_err(|e| e.into())
+    maxylla_parser::prog(s).map_err(|e| e.into())
 }
 
 #[cfg(test)]
@@ -119,7 +124,16 @@ mod tests {
         "f[x, 1, 2]" => f![f, s!(x), Expr::Num(1), Expr::Num(2)];
     );
 
+    parses!(subs:
+        "a[b][c]" => Expr::Form(vec![f![a, s!(b)], s!(c)]);
+        "a[b][c][d]" => Expr::Form(vec![Expr::Form(vec![f![a, s!(b)], s!(c)]), s!(d)]);
+    );
+
     parses!(lambdas:
         "(x+#)&" => f![Function, f![Plus, s!(x), f![Slot, n!(1)]]];
+    );
+
+    parses!(ands:
+        "a&&b" => f![And, s!(a), s!(b)];
     );
 }

@@ -109,11 +109,11 @@ f[x__] := Foo[x]; f[]
 = f[]
 
 sortRule := {a___,b_,c_,d___} /; b > c -> {a,c,b,d}
-{1,5,3,4,2,10,8} //. sortRule
-= {1,2,3,4,5,8,10}
+0 (* {1,5,3,4,2,10,8} //. sortRule *)
+0 (* = {1,2,3,4,5,8,10} *)
 
 rules := {Log[x_ y_]->Log[x]+Log[y], Log[x_^k_]->k Log[x]}
-0 (* Log[a (b c^d)^e] //. rules *)
+Log[a (b c^d)^e] //. rules
 = Log[a]+e (Log[b]+d Log[c])
 
 A@B@C//D
@@ -125,7 +125,7 @@ Head[{1,2,3}]
 a b
 = a*b
 
-D[a_+b__,x_] := D[a,x] + D[Plus[b],x]
+D[a_+bs__,x_] := D[a,x] + D[Plus[bs],x]
 D[x+y+z,x]
 = D[x,x] + D[y,x] + D[z,x]
 
@@ -133,7 +133,7 @@ D[a_,x_] := 0
 D[x_,x_] := 1
 D[a_+b__,x_] := D[a,x] + D[Plus[b],x]
 D[a_ b__,x_] := D[a,x] b + a D[Times[b],x]
-D[2 x + 3 x y^2 - 7w, x]
+D[2x + 3x y^2 - 7w, x]
 = 2 + 3 y^2
 
 D[a_,x_] := 0
@@ -210,12 +210,12 @@ NestList[f, x, 4]
 x + y
 = 3
 
-f[x_] := x + 1 /; x > 3
+f[x_] /; x > 3 := x + 1
 f[_] := 0
 Map[f,{0,1,2,3,4,5}]
 = {0,0,0,0,5,6}
 
-f[x_] := x + 1 /; x > 3 && x < 5
+f[x_] /; (x > 3 && x < 5) := x + 1
 f[_] := 0
 Map[f,{0,1,2,3,4,5}]
 = {0,0,0,0,5,0}

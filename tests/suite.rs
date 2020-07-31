@@ -25,13 +25,19 @@ impl Error for SuiteErr {
     }
 }
 
-fn run_line(env: &mut Env, last: &mut Expr, line: &str) -> result::Result<bool, Box<dyn Error>> {
+fn run_line(
+    env: &mut Env,
+    reset_env: &Env,
+    last: &mut Expr,
+    line: &str,
+) -> result::Result<bool, Box<dyn Error>> {
     if line == "" {
-        *env = Env::new();
+        *env = reset_env.clone();
         *last = Expr::null();
         Ok(false)
     } else if line.starts_with("= ") {
-        let expected = parse(&line[2..])?;
+        let parsed_expected = parse(&line[2..])?;
+        let expected = env.eval(&parsed_expected)?;
         if expected == *last {
             Ok(true)
         } else {
@@ -54,11 +60,12 @@ fn suite() {
         let contents = fs::read_to_string(&path).unwrap();
 
         let mut stdout = StandardStream::stdout(ColorChoice::Always);
-        let mut env = Env::new();
+        let reset_env = Env::new();
+        let mut env = reset_env.clone();
         let mut last = Expr::null();
         for (i, line) in contents.lines().enumerate() {
             print!("{}:{}: ", path.display(), i + 1);
-            match run_line(&mut env, &mut last, line) {
+            match run_line(&mut env, &reset_env, &mut last, line) {
                 Ok(true) => {
                     stdout
                         .set_color(ColorSpec::new().set_fg(Some(Color::Green)))

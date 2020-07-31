@@ -1,12 +1,13 @@
 use crate::types::*;
 use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 impl Subs {
     fn null() -> Self {
         Subs {
             subs: HashMap::new(),
             num_constants: 0,
+            max_depth: 0,
         }
     }
     fn add_constant(&self) -> Self {
@@ -14,6 +15,14 @@ impl Subs {
         let nc = s.num_constants;
         Subs {
             num_constants: nc + 1,
+            ..s
+        }
+    }
+    fn add_depth(&self) -> Self {
+        let s = self.clone();
+        let md = s.max_depth;
+        Subs {
+            max_depth: md + 1,
             ..s
         }
     }
@@ -48,6 +57,7 @@ pub fn run_unify(env: &Env, patt: &Expr, expr: &Expr) -> EvalResult<Option<Subs>
 }
 
 pub fn unify(env: &Env, patt: &Expr, expr: &Expr) -> UnifyResult {
+    // println!("unifying {} and {}", patt, expr);
     match (patt, expr) {
         (Expr::Sym(ps), Expr::Sym(es)) if ps == es => constant(),
         (Expr::Num(pn), Expr::Num(en)) if pn == en => constant(),
@@ -60,7 +70,7 @@ pub fn unify(env: &Env, patt: &Expr, expr: &Expr) -> UnifyResult {
                         if pt.len() == 0 {
                             return succeed();
                         } else {
-                            let head = pt[0].as_sym().map(|s| s.to_owned());
+                            let head = pt[0].as_sym();
                             guard(head.is_some() && expr.head() == head)?;
                             return constant();
                         }
@@ -74,16 +84,33 @@ pub fn unify(env: &Env, patt: &Expr, expr: &Expr) -> UnifyResult {
                         return Ok(subs);
                     }
                     "Condition" => {
+                        guard(pt.len() == 2)?;
                         let body = &pt[0];
                         let cond = &pt[1];
                         let subs = unify(env, body, expr)?;
                         let mut env2 = env.clone();
                         let cond2 = subs.replace(cond);
                         return match env2.eval(&cond2) {
-                            Ok(e) if e == s!(True) => Ok(subs),
+                            Ok(e) if e == s!(True) => Ok(subs.add_constant()),
                             Err(e) => Err(UnifyError::Error(e)),
                             _ => fail(),
                         };
+                    }
+                    "Verbatim" => {
+                        let s = pt[0].as_sym().ok_or(UnifyError::Failure)?;
+                        if let Expr::Sym(es) = expr {
+                            if s == es {
+                                return constant();
+                            }
+                        }
+                    }
+                    "Alternatives" => {
+                        for arg in pt {
+                            if let Ok(subs) = unify(env, arg, expr) {
+                                return Ok(subs);
+                            }
+                        }
+                        return Err(UnifyError::Failure);
                     }
                     _ => (),
                 },
@@ -91,7 +118,7 @@ pub fn unify(env: &Env, patt: &Expr, expr: &Expr) -> UnifyResult {
             };
             // otherwise just unify as a form
             let ef = expr.as_form().ok_or(UnifyError::Failure)?;
-            unify_seq(env, pf, ef)
+            unify_seq(env, pf, ef).map(|s| s.add_depth())
         }
         (_, _) => fail(),
     }
@@ -137,9 +164,8 @@ fn unify_seq(env: &Env, patts: &[Expr], exprs: &[Expr]) -> UnifyResult {
     // simple greedy unification of sequences.
     // so f[x_,xs___] works, but f[xs___,x_] doesn't.
     // println!("unify_seq {:?} {:?}", patts, exprs);
-    let mut patts = patts.to_vec();
-    let mut subs = Subs::null();
     let mut exprs = exprs.iter().map(|e| e.clone());
+    let mut all_subs = vec![];
     for i in 0..patts.len() {
         let exprs_ref = &mut exprs;
         let (card, patt) = detect_cardinality(&patts[i]);
@@ -168,22 +194,37 @@ fn unify_seq(env: &Env, patts: &[Expr], exprs: &[Expr]) -> UnifyResult {
         );
         */
         let new_subs = unify(env, &patt, &expr)?;
+        /*
         for j in i..patts.len() {
             patts[j] = new_subs.reify(&patts[j]);
         }
         subs.merge(new_subs);
+        */
+        all_subs.push(new_subs);
     }
+    // make sure we consumed the whole sequence
     guard(exprs.next() == None)?;
+    let mut subs = Subs::null();
+    for s in all_subs {
+        subs.merge(s)?;
+    }
     Ok(subs)
 }
 
 impl Subs {
-    fn merge(&mut self, subs: Subs) {
-        // extend, asserting there are no dupes.
-        let old_sz = self.subs.len() + subs.subs.len();
-        self.subs.extend(subs.subs);
-        self.num_constants += subs.num_constants;
-        assert_eq!(self.subs.len(), old_sz);
+    fn merge(&mut self, other: Subs) -> UnifyResultT<()> {
+        // self.subs.extend(subs.subs);
+        for (name, val) in other.subs {
+            if self.subs.contains_key(&name) {
+                guard(self.subs[&name] == val)?;
+                self.num_constants += 1;
+            } else {
+                self.subs.insert(name, val);
+            }
+        }
+        self.num_constants += other.num_constants;
+        self.max_depth = self.max_depth.max(other.max_depth);
+        Ok(())
     }
     pub fn reify(&self, expr: &Expr) -> Expr {
         match expr {
@@ -219,7 +260,10 @@ impl Subs {
 
 impl Ord for Subs {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.num_constants.cmp(&other.num_constants)
+        self.max_depth
+            .cmp(&other.max_depth)
+            .then(self.num_constants.cmp(&other.num_constants))
+            .then(self.subs.len().cmp(&other.subs.len()))
     }
 }
 
@@ -229,19 +273,117 @@ impl PartialOrd for Subs {
     }
 }
 
+impl Expr {
+    pub fn patterns_to_gensyms(self, key: usize, names: &mut HashSet<String>) -> Self {
+        if self.has_head("Pattern") {
+            let es = self.as_form().unwrap();
+            let name = es[1].as_sym().unwrap();
+            names.insert(name.to_owned());
+            let body = &es[2];
+            let new_name = format!("{}~{}", name, key);
+            f![Pattern, Expr::Sym(new_name), body.clone()]
+        } else {
+            match self {
+                Expr::Form(es) => Expr::Form(
+                    es.iter()
+                        .map(|e| e.clone().patterns_to_gensyms(key, names))
+                        .collect(),
+                ),
+                e => e,
+            }
+        }
+    }
+    pub fn conds_to_gensyms(self, key: usize, names: &HashSet<String>) -> Self {
+        if self.has_head("Condition") {
+            let es = self.as_form().unwrap();
+            let body = &es[1];
+            let cond = &es[2];
+            let new_cond = cond.clone().syms_to_gensyms(key, names);
+            f![Condition, body.clone(), new_cond]
+        } else {
+            match self {
+                Expr::Form(es) => Expr::Form(
+                    es.iter()
+                        .map(|e| e.clone().conds_to_gensyms(key, names))
+                        .collect(),
+                ),
+                e => e,
+            }
+        }
+    }
+    pub fn syms_to_gensyms(self, key: usize, names: &HashSet<String>) -> Self {
+        match self {
+            Expr::Sym(s) if names.contains(&s) => Expr::Sym(format!("{}~{}", s, key)),
+            Expr::Form(es) => Expr::Form(
+                es.iter()
+                    .map(|e| e.clone().syms_to_gensyms(key, names))
+                    .collect(),
+            ),
+            _ => self,
+        }
+    }
+    pub fn gensymify(self, rhs: &Expr, key: usize) -> (Self, Self) {
+        let mut names = HashSet::new();
+        let lhs = self.patterns_to_gensyms(key, &mut names);
+        let lhs = lhs.conds_to_gensyms(key, &names);
+        let rhs = rhs.clone().syms_to_gensyms(key, &names);
+        (lhs, rhs)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::parse::parse;
     use maplit::hashmap;
 
+    #[test]
+    fn test_patterns_to_gensyms() {
+        let mut s = HashSet::new();
+        assert_eq!(s!(a).patterns_to_gensyms(123, &mut s), s!(a));
+        assert_eq!(n!(0).patterns_to_gensyms(123, &mut s), n!(0));
+        assert_eq!(
+            f![Foo, s!(x)].patterns_to_gensyms(123, &mut s),
+            f![Foo, s!(x)]
+        );
+        assert_eq!(s, HashSet::new());
+
+        assert_eq!(
+            f![Pattern, s!(x), f![Blank]].patterns_to_gensyms(123, &mut s),
+            f![Pattern, Expr::Sym("x~123".to_owned()), f![Blank]]
+        );
+        let mut s2 = HashSet::new();
+        s2.insert("x".to_owned());
+        assert_eq!(s, s2);
+        assert_eq!(
+            f![Foo, s!(3), f![Pattern, s!(x), f![Blank]]].patterns_to_gensyms(123, &mut s),
+            f![
+                Foo,
+                s!(3),
+                f![Pattern, Expr::Sym("x~123".to_owned()), f![Blank]]
+            ]
+        );
+    }
+
+    #[test]
+    fn test_gensymify() {
+        assert_eq!(
+            f![Pattern, s!(x), f![Blank]].gensymify(&s!(x), 123),
+            (
+                f![Pattern, Expr::Sym("x~123".to_owned()), f![Blank]],
+                Expr::Sym("x~123".to_owned())
+            )
+        );
+    }
+
     macro_rules! succs {
         ( $p:expr, $e:expr ) => {
             assert!(unify(&Env::bare(), &p!($p), &p!($e)).is_ok());
         };
-        ( $p:expr, $e:expr, c: $c:expr ) => {
+        ( $p:expr, $e:expr, c: $c:expr, d: $d:expr ) => {
             let subs = Subs {
                 num_constants: $c,
+                max_depth: $d,
                 ..Subs::null()
             };
             assert_eq!(unify(&Env::bare(), &p!($p), &p!($e)), Ok(subs));
@@ -253,10 +395,15 @@ mod tests {
         };
     }
     macro_rules! binds {
-        ( $p:expr, $e:expr, c: $c:expr $(, $name:ident => $val:expr )* $(,)? ) => {
+        ( $p:expr, $e:expr, c: $c:expr, d: $d:expr $(, $name:ident => $val:expr )* $(,)? ) => {
             let subs = hashmap![ $( stringify!($name).to_owned() => $val ),* ];
             let result = unify(&Env::bare(), &p!($p), &p!($e));
-            assert_eq!(result, Ok(Subs { subs, num_constants: $c, ..Subs::null() }))
+            assert_eq!(result, Ok(Subs {
+                subs,
+                num_constants: $c,
+                max_depth: $d,
+                ..Subs::null()
+            }))
         };
         ( $p:expr, $e:expr $(, $name:ident => $val:expr )* $(,)? ) => {
             let subs = hashmap![ $( stringify!($name).to_owned() => $val ),* ];
@@ -272,6 +419,7 @@ mod tests {
         let subs = Subs {
             subs: hashmap!["x".to_owned() => n!(0)],
             num_constants: 0,
+            max_depth: 0,
         };
         assert_eq!(subs.reify(&s!(x)), s!(x));
         assert_eq!(subs.reify(&s!(y)), s!(y));
@@ -296,51 +444,58 @@ mod tests {
 
     #[test]
     fn pattern_syms() {
-        succs!("a", "a", c: 1);
+        succs!("a", "a", c: 1, d: 0);
         fails!("a", "b");
         fails!("b", "a");
     }
 
     #[test]
     fn pattern_nums() {
-        succs!("0", "0", c: 1);
-        succs!("123", "123", c: 1);
+        succs!("0", "0", c: 1, d: 0);
+        succs!("123", "123", c: 1, d: 0);
         fails!("10", "123");
     }
 
     #[test]
     fn pattern_forms() {
-        succs!("f[x]", "f[x]", c: 2);
+        succs!("f[x]", "f[x]", c: 2, d: 1);
         fails!("f[x]", "g[x]");
         fails!("f[x]", "f[y]");
     }
 
     #[test]
     fn pattern_basic_subs() {
-        binds!("x_", "0", c: 0, x => n!(0));
-        binds!("x_", "y", c: 0, x => s!(y));
-        binds!("x_", "x", c: 0, x => s!(x));
-        binds!("x_", "x", c: 0, x => s!(x));
-        binds!("f[x_]", "f[0]", c: 1, x => n!(0));
-        binds!("f_[x]", "g[x]", c: 1, f => s!(g));
-        binds!("f_[x_]", "g[y]", c: 0, 
+        binds!("x_", "0", c: 0, d: 0,
+            x => n!(0));
+        binds!("x_", "y", c: 0, d: 0,
+            x => s!(y));
+        binds!("x_", "x", c: 0, d: 0,
+            x => s!(x));
+        binds!("x_", "x", c: 0, d: 0,
+            x => s!(x));
+        binds!("f[x_]", "f[0]", c: 1, d: 1,
+            x => n!(0));
+        binds!("f_[x]", "g[x]", c: 1, d: 1,
+            f => s!(g));
+        binds!("f_[x_]", "g[y]", c: 0, d: 1,
             f => s!(g), x => s!(y));
         // for self-referential patterns, each additional match
         // adds a constant
-        binds!("f[x_,x_]", "f[0,0]", c: 2, x => n!(0));
+        binds!("f[x_,x_]", "f[0,0]", c: 2, d: 1,
+            x => n!(0));
         fails!("f[x_,x_]", "f[0,1]");
         fails!("f[x_,g[x_]]", "f[0,g[1]]");
-        binds!("f_[x_,f_[x_]]", "g[0,g[0]]", c: 2,
+        binds!("f_[x_,f_[x_]]", "g[0,g[0]]", c: 2, d: 2,
             f => s!(g), x => n!(0));
     }
 
     #[test]
     fn pattern_basic_seq_subs() {
-        binds!("f[xs___]", "f[]", c: 1, 
+        binds!("f[xs___]", "f[]", c: 1, d: 1,
             xs => f![Sequence]);
-        binds!("f[xs___]", "f[0,1,2]", c: 1, 
+        binds!("f[xs___]", "f[0,1,2]", c: 1, d: 1,
             xs => p!("Sequence[0,1,2]"));
-        binds!("f[x_,xs___]", "f[0,1,2]", c: 1,
+        binds!("f[x_,xs___]", "f[0,1,2]", c: 1, d: 1,
             x => n!(0),
             xs => p!("Sequence[1,2]"));
     }
@@ -363,5 +518,11 @@ mod tests {
         fails!("x_/;False", "a");
         succs!("x_/;x", "True");
         fails!("x_/;x", "False");
+    }
+
+    #[test]
+    fn pattern_verbatim() {
+        fails!("Condition[x]", "Condition[x]");
+        succs!("Verbatim[Condition][x]", "Condition[x]", c: 2, d: 1);
     }
 }

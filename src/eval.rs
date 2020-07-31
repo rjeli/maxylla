@@ -1,11 +1,20 @@
+use permutohedron::Heap;
 use std::cmp::Ordering;
+use std::collections::HashSet;
 use std::convert::TryInto;
 use std::default::Default;
 use std::fs;
 use std::str::FromStr;
+use std::sync::atomic;
 
 use crate::pattern::run_unify;
+use crate::util::insert_or_append;
 use crate::{parse::parse, s, types::*};
+
+static GENSYM_CNT: atomic::AtomicUsize = atomic::AtomicUsize::new(0);
+fn next_gensym() -> usize {
+    GENSYM_CNT.load(atomic::Ordering::SeqCst)
+}
 
 impl Env {
     pub fn bare() -> Env {
@@ -35,6 +44,7 @@ impl Env {
         loop {
             let evaled = self.eval_at(&last, depth)?;
             if evaled == last {
+                // println!("fix point reached on {}", evaled);
                 return Ok(evaled);
             }
             n += 1;
@@ -59,8 +69,12 @@ impl Env {
             Expr::Form(es) => {
                 let (head, args) = es.split_first().ok_or(EvalError::new("no head"))?;
                 let head = self.eval_fix(head, depth + 1)?;
-                let head_sym = match head.clone() {
-                    Expr::Sym(s) => Ok(s),
+                let (head_sym, is_sub) = match head.clone() {
+                    Expr::Sym(s) => Ok((s, false)),
+                    Expr::Form(es) => {
+                        let sub_head = es[0].as_sym().unwrap();
+                        Ok((sub_head.to_owned(), true))
+                    }
                     _ => Err(EvalError::new(&format!("head not a sym: {:?}", head))),
                 }?;
                 // skip fixed point eval for CompoundExpression
@@ -72,6 +86,16 @@ impl Env {
                     return Ok(last);
                 }
                 let args = Expr::flatten_seqs(args);
+                let args = if self.has_attr(&head_sym, Attr::Flat) {
+                    args.iter()
+                        .flat_map(|a| a.clone().flat(&head_sym))
+                        .collect::<Vec<_>>()
+                } else {
+                    args
+                };
+                if self.has_attr(&head_sym, Attr::OneIdentity) && args.len() == 1 {
+                    return Ok(args[0].clone());
+                }
                 /* evaluate args */
                 let args = if self.has_attr(&head_sym, Attr::HoldAll) {
                     args.to_vec()
@@ -111,38 +135,45 @@ impl Env {
                     }
                     return res;
                 }
-                let mut v = vec![head];
+                let mut v = vec![head.clone()];
                 v.extend(args.clone());
                 let expr = Expr::Form(v);
                 // now expr is our canonical expression to eval.
                 // println!("evaluating: {}", expr);
-                if let Some(downs) = self.downs.get(&head_sym) {
-                    // println!("downs:");
-                    // for (lhs, rhs) in downs {
-                    // println!("  {} -> {}", lhs, rhs);
-                    // }
-                    let mut candidates = vec![];
-                    for (lhs, rhs) in downs {
-                        if let Some(subs) = run_unify(self, lhs, &expr)? {
-                            candidates.push((subs, rhs));
+                if is_sub {
+                    if let Some(subs) = self.subs.get(&head_sym) {
+                        if let Some(replaced) = self.replace(&expr, subs)? {
+                            return Ok(replaced);
                         }
                     }
-                    candidates.sort_by(|a, b| b.0.cmp(&a.0));
-                    /*
-                                        println!("cands:");
-                                        for (subs, rhs) in &candidates {
-                                            println!("  c:{} {} with {:?}", subs.num_constants, rhs, subs.subs);
-                                        }
-                    */
-                    if let Some((subs, rhs)) = candidates.first() {
-                        let reified = subs.replace(&rhs);
-                        let flat = Expr::flatten_seqs(&[reified]);
-                        let reified = flat.first().unwrap();
-                        // return self.eval_fix(&reified, depth + 1);
-                        return Ok(reified.clone());
+                }
+                if let Some(downs) = self.downs.get(&head_sym) {
+                    if self.has_attr(&head_sym, Attr::Orderless) {
+                        let mut margs = args.clone();
+                        let heap = Heap::new(&mut margs);
+                        for perm in heap {
+                            let mut v = vec![head.clone()];
+                            v.extend(perm.clone());
+                            let pexpr = Expr::Form(v);
+                            if let Some(replaced) = self.replace(&pexpr, downs)? {
+                                return Ok(replaced);
+                            }
+                        }
+                    } else {
+                        if let Some(replaced) = self.replace(&expr, downs)? {
+                            return Ok(replaced);
+                        }
                     }
                 }
-                Ok(expr)
+                if self.has_attr(&head_sym, Attr::Orderless) {
+                    let mut args = args.clone();
+                    args.sort();
+                    let mut v = vec![head.clone()];
+                    v.extend(args);
+                    Ok(Expr::Form(v))
+                } else {
+                    Ok(expr)
+                }
             }
             Expr::Sym(s) => {
                 let own = self.owns.get(s).map(|e2| e2.clone());
@@ -170,12 +201,38 @@ impl Env {
             .unwrap_or(false)
     }
 
+    fn replace(&self, expr: &Expr, rules: &[(Expr, Expr)]) -> EvalResult<Option<Expr>> {
+        let mut candidates = vec![];
+
+        let key = next_gensym();
+        for (lhs, rhs) in rules {
+            let (lhs, rhs) = lhs.clone().gensymify(rhs, key);
+            if let Some(subs) = run_unify(self, &lhs, &expr)? {
+                candidates.push((subs, rhs));
+            }
+        }
+        candidates.sort_by(|a, b| b.0.cmp(&a.0));
+        if let Some((subs, rhs)) = candidates.first() {
+            let reified = subs.replace(&rhs);
+            let flat = Expr::flatten_seqs(&[reified]);
+            let reified = flat.first().unwrap();
+            // return self.eval_fix(&reified, depth + 1);
+            Ok(Some(reified.clone()))
+        } else {
+            Ok(None)
+        }
+    }
+
     fn eval_prim(&mut self, prim_head: &str, args: &[Expr]) -> EvalResult<Expr> {
         if self.trace {
             println!("~p {} {:?}", prim_head, args);
         }
         // println!("evaling prim: {} {:?}", prim_head, args);
         match prim_head {
+            "Prim`Print" => {
+                println!("// {}", args[0]);
+                Ok(Expr::null())
+            }
             "Prim`SetAttributes" => match args {
                 [Expr::Sym(s), Expr::Form(attr_list)] => {
                     let (attrs_head, attrs_args) =
@@ -187,7 +244,10 @@ impl Env {
                         if let Expr::Sym(a) = arg {
                             self.set_attr(s, &a);
                         } else {
-                            return Err(EvalError::new("bad setattr rhs (not sym)"));
+                            return Err(EvalError::new(&format!(
+                                "bad setattr rhs (not sym): {}",
+                                arg
+                            )));
                         }
                     }
                     Ok(Expr::null())
@@ -198,27 +258,31 @@ impl Env {
                 ))),
             },
             "Prim`AddDownValue" => {
-                if let Expr::Sym(s) = &args[0] {
-                    if !self.downs.contains_key(s) {
-                        self.downs.insert(s.clone(), vec![]);
-                    }
-                    self.downs
-                        .get_mut(s)
-                        .unwrap()
-                        .push((args[1].clone(), args[2].clone()));
-                    // println!("added downval on: {} {} {}", args[0], args[1], args[2]);
-                    Ok(Expr::null())
-                } else {
-                    Err(EvalError::new("bad adddownvalue lhs (not sym)"))
-                }
+                let s = args[0].as_sym().unwrap().to_owned();
+                /*
+                let cnt = GENSYM_CNT.fetch_add(1, atomic::Ordering::SeqCst);
+                let (lhs, rhs) = args[1].clone().gensymify(&args[2], cnt);
+                */
+                let (lhs, rhs) = (args[1].clone(), args[2].clone());
+                insert_or_append(&mut self.downs, &s, (lhs, rhs));
+                Ok(Expr::null())
             }
             "Prim`AddOwnValue" => {
                 if let Expr::Sym(s) = &args[0] {
                     self.owns.insert(s.clone(), args[1].clone());
                     Ok(Expr::null())
                 } else {
-                    Err(EvalError::new("bad adddownvalue lhs (not sym)"))
+                    Err(EvalError::new(&format!("bad addownvalue lhs: {}", args[0])))
                 }
+            }
+            "Prim`AddSubValue" => {
+                let s = args[0].as_sym().unwrap();
+                insert_or_append(
+                    &mut self.subs,
+                    &s.to_owned(),
+                    (args[1].clone(), args[2].clone()),
+                );
+                Ok(Expr::null())
             }
             "Prim`OwnValues" => {
                 let s = args[0].as_sym().unwrap();
@@ -237,6 +301,16 @@ impl Env {
                 let mut v = vec![s!(List)];
                 if let Some(down) = self.downs.get(s) {
                     for (lhs, rhs) in down {
+                        v.push(f![RuleDelayed, f![HoldPattern, lhs.clone()], rhs.clone()]);
+                    }
+                }
+                Ok(Expr::Form(v))
+            }
+            "Prim`SubValues" => {
+                let s = args[0].as_sym().unwrap();
+                let mut v = vec![s!(List)];
+                if let Some(sub) = self.subs.get(s) {
+                    for (lhs, rhs) in sub {
                         v.push(f![RuleDelayed, f![HoldPattern, lhs.clone()], rhs.clone()]);
                     }
                 }
@@ -286,8 +360,15 @@ impl Env {
                 let expr = &args[0];
                 let lhs = &args[1];
                 let rhs = &args[2];
+                /*
                 if let Some(subs) = run_unify(self, lhs, expr)? {
                     Ok(subs.replace(rhs))
+                } else {
+                    Ok(expr.clone())
+                }
+                */
+                if let Some(replaced) = self.replace(expr, &[(lhs.clone(), rhs.clone())])? {
+                    Ok(replaced)
                 } else {
                     Ok(expr.clone())
                 }

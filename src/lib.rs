@@ -8,3 +8,4 @@ pub mod eval;
 pub mod parse;
 // pub mod unify;
 pub mod pattern;
+pub mod util;
