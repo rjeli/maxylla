@@ -2,102 +2,102 @@
 
 (* Bootstrap SetDelayed *)
 
-Prim`SetAttributes[Prim`AddDownValue,{HoldRest}];
-Prim`AddDownValue[SetDelayed,SetDelayed[f_[xs___],rhs_],Prim`AddDownValue[f,f[xs],rhs]];
-Prim`SetAttributes[SetDelayed,{HoldAll}];
+Prim`SetAttributes[Prim`AddDownValue,{HoldRest}]
+Prim`AddDownValue[SetDelayed,SetDelayed[f_[xs___],rhs_],Prim`AddDownValue[f,f[xs],rhs]]
+Prim`SetAttributes[SetDelayed,{HoldAll}]
 
 (* Core semantics *)
 
-SetAttributes[h_,attrs___]:=Prim`SetAttributes[h,attrs];
-SetAttributes[Hold,{HoldAll}];
-SetAttributes[HoldPattern,{HoldAll}];
-SetAttributes[Set,{HoldFirst}];
-SetAttributes[RuleDelayed,{HoldRest}];
+SetAttributes[h_,attrs___]:=Prim`SetAttributes[h,attrs]
+SetAttributes[Hold,{HoldAll}]
+SetAttributes[HoldPattern,{HoldAll}]
+SetAttributes[Set,{HoldFirst}]
+SetAttributes[RuleDelayed,{HoldRest}]
 
-SetDelayed[s_Symbol,x_]:=Prim`AddOwnValue[s,x];
-SetAttributes[Condition,{HoldAll}];
-SetDelayed[Verbatim[Condition][f_[xs___],cond_],rhs_]:=Prim`AddDownValue[f,Condition[f[xs],cond],rhs];
-SetDelayed[{xs___},{rhs___}]:=ZipWith[SetDelayed,{xs},{rhs}];
-SetAttributes[Prim`AddSubValue,{HoldRest}];
-SetDelayed[f_[xs___][ys___],rhs_]:=Prim`AddSubValue[f,f[xs][ys],rhs];
+SetDelayed[s_Symbol,x_]:=Prim`AddOwnValue[s,x]
+SetAttributes[Condition,{HoldAll}]
+SetDelayed[Verbatim[Condition][f_[xs___],cond_],rhs_]:=Prim`AddDownValue[f,Condition[f[xs],cond],rhs]
+SetDelayed[{xs___},{rhs___}]:=ZipWith[SetDelayed,{xs},{rhs}]
+SetAttributes[Prim`AddSubValue,{HoldRest}]
+SetDelayed[f_[xs___][ys___],rhs_]:=Prim`AddSubValue[f,f[xs][ys],rhs]
 
-Function[body_][a_] := body /. Slot[1] -> a;
+Function[body_][a_] := body /. Slot[1] -> a
 
-SetAttributes[OwnValues,{HoldAll}];
-SetAttributes[Prim`OwnValues,{HoldAll}];
-OwnValues[x_]:=Prim`OwnValues[x];
-DownValues[x_]:=Prim`DownValues[x];
-SubValues[x_]:=Prim`SubValues[x];
+SetAttributes[OwnValues,{HoldAll}]
+SetAttributes[Prim`OwnValues,{HoldAll}]
+OwnValues[x_]:=Prim`OwnValues[x]
+DownValues[x_]:=Prim`DownValues[x]
+SubValues[x_]:=Prim`SubValues[x]
 
 (* Utility functions *)
 
-Apply[f_,h_[xs___]]:=f[xs];
-Cons[x_,{xs___}]:={x,xs};
-Map[f_,{x_,xs___}]:=Cons[f[x],Map[f,{xs}]];
-Map[f_,{}]:={};
-Head[h_[xs___]]:=h;
-First[h_[x_,xs___]]:=x;
-Rest[h_[x_,xs___]]:=h[xs];
-Length[h_[x_,xs___]]:=1+Length[h[xs]];
-Length[h_[]]:=0;
-Repeat[x_,0]:={};
-Repeat[x_,n_]:=Cons[x,Repeat[x,n-1]];
-NestList[f_,x_,0]:={x};
-NestList[f_,x_,n_]:=Cons[x,f/@NestList[f,x,n-1]];
-Eval[Hold[x_]]:=x;
-ZipWith[f_,{x_,xs___},{y_,ys___}]:=Cons[f[x,y],ZipWith[f,{xs},{ys}]];
-ZipWith[_,_,_]:={};
-Flip[f_][a_,b_]:=f[b,a];
+Apply[f_,h_[xs___]]:=f[xs]
+Cons[x_,{xs___}]:={x,xs}
+Map[f_,{x_,xs___}]:=Cons[f[x],Map[f,{xs}]]
+Map[f_,{}]:={}
+Head[h_[xs___]]:=h
+First[h_[x_,xs___]]:=x
+Rest[h_[x_,xs___]]:=h[xs]
+Length[h_[x_,xs___]]:=1+Length[h[xs]]
+Length[h_[]]:=0
+Repeat[x_,0]:={}
+Repeat[x_,n_]:=Cons[x,Repeat[x,n-1]]
+NestList[f_,x_,0]:={x}
+NestList[f_,x_,n_]:=Cons[x,f/@NestList[f,x,n-1]]
+Eval[Hold[x_]]:=x
+ZipWith[f_,{x_,xs___},{y_,ys___}]:=Cons[f[x,y],ZipWith[f,{xs},{ys}]]
+ZipWith[_,_,_]:={}
+Flip[f_][a_,b_]:=f[b,a]
 
 (* Replacement *)
 
-Replace[x_,Rule[lhs_,rhs_]]:=Prim`Replace[x,lhs,rhs];
-Replace[x_,{Rule[lhs_,rhs_],rs___}] /; MatchQ[x,lhs] := Replace[x,lhs->rhs];
-Replace[x_,{Rule[lhs_,rhs_],rs___}] /; Not[MatchQ[x,lhs]] := Replace[x,{rs}];
-Replace[x_,{}]:=x;
+Replace[x_,Rule[lhs_,rhs_]]:=Prim`Replace[x,lhs,rhs]
+Replace[x_,{Rule[lhs_,rhs_],rs___}] /; MatchQ[x,lhs] := Replace[x,lhs->rhs]
+Replace[x_,{Rule[lhs_,rhs_],rs___}] /; Not[MatchQ[x,lhs]] := Replace[x,{rs}]
+Replace[x_,{}]:=x
 
-SetAttributes[MatchQ,{HoldRest}];
-MatchQ[x_,patt_]:=Replace[x,patt->MatchQSentinel]==MatchQSentinel;
+SetAttributes[MatchQ,{HoldRest}]
+MatchQ[x_,patt_]:=Replace[x,patt->MatchQSentinel]==MatchQSentinel
 
-ReplaceAll[rules_][x_]:=ReplaceAll[x,rules];
-ReplaceAll[x_,rules_]:=ReplaceAllCheck[rules,x,Replace[x,rules]];
-ReplaceAllCheck[rules_,before_,after_] /; Not[before==after] := after;
+ReplaceAll[rules_][x_]:=ReplaceAll[x,rules]
+ReplaceAll[x_,rules_]:=ReplaceAllCheck[rules,x,Replace[x,rules]]
+ReplaceAllCheck[rules_,before_,after_] /; Not[before==after] := after
 (* to lower priority *)
-ReplaceAllCheck[rules_,x_,_] := ReplaceAllRecur[rules,x];
-ReplaceAllRecur[rules_,f_[xs___]] := ReplaceAll[f,rules] @@ ReplaceAll[rules] /@ {xs};
-ReplaceAllRecur[_,x_] := x;
+ReplaceAllCheck[rules_,x_,_] := ReplaceAllRecur[rules,x]
+ReplaceAllRecur[rules_,f_[xs___]] := ReplaceAll[f,rules] @@ ReplaceAll[rules] /@ {xs}
+ReplaceAllRecur[_,x_] := x
 
-ReplaceRepeated[x_,rules_]:=ReplaceRepeatedCheck[rules,x,ReplaceAll[x,rules]];
-ReplaceRepeatedCheck[rules_,same_,same_]:=same;
-ReplaceRepeatedCheck[rules_,before_,after_] := ReplaceRepeatedCheck[rules,after,ReplaceAll[after,rules]];
+ReplaceRepeated[x_,rules_]:=ReplaceRepeatedCheck[rules,x,ReplaceAll[x,rules]]
+ReplaceRepeatedCheck[rules_,same_,same_]:=same
+ReplaceRepeatedCheck[rules_,before_,after_] := ReplaceRepeatedCheck[rules,after,ReplaceAll[after,rules]]
 
 (* Logic *)
 
-Equal[x_,x_]:=True;
-Equal[_,_]:=False;
-And[True,True]:=True;
-And[_,_]:=False;
-SetAttributes[Or,{Flat,HoldAll,OneIdentity}];
-Or[False,False]:=False;
-Or[_,_]:=True;
-Not[True]:=False;
-Not[False]:=True;
+Equal[x_,x_]:=True
+Equal[_,_]:=False
+And[True,True]:=True
+And[_,_]:=False
+SetAttributes[Or,{Flat,HoldAll,OneIdentity}]
+Or[False,False]:=False
+Or[_,_]:=True
+Not[True]:=False
+Not[False]:=True
 
 (* Math *)
 
-Greater[x_Integer,y_Integer]:=Prim`Cmp[x,y]==GT;
-Less[x_Integer,y_Integer]:=Prim`Cmp[x,y]==LT;
+Greater[x_Integer,y_Integer]:=Prim`Cmp[x,y]==GT
+Less[x_Integer,y_Integer]:=Prim`Cmp[x,y]==LT
 
-SetAttributes[Plus,{Flat,Orderless,OneIdentity}];
-Plus[x_Integer,y_Integer,rest___]:=Prim`Plus[x,y]+Plus[rest];
-Plus[0,rest___]:=Plus[rest];
-Plus[]:=0;
+SetAttributes[Plus,{Flat,Orderless,OneIdentity}]
+Plus[x_Integer,y_Integer,rest___]:=Prim`Plus[x,y]+Plus[rest]
+Plus[0,rest___]:=Plus[rest]
+Plus[]:=0
 
-SetAttributes[Times,{Flat,Orderless,OneIdentity}];
-Times[x_Integer,y_Integer,rest___]:=Prim`Times[x,y] Times[rest];
-Times[0,rest___]:=0;
-Times[1,rest___]:=Times[rest];
-Times[]:=1;
+SetAttributes[Times,{Flat,Orderless,OneIdentity}]
+Times[x_Integer,y_Integer,rest___]:=Prim`Times[x,y] Times[rest]
+Times[0,rest___]:=0
+Times[1,rest___]:=Times[rest]
+Times[]:=1
 
-Times[x_,x_,rest___]:=Power[x,2] Times[rest];
-Times[Power[a_,b_],Power[a_,c_],rest___]:=Power[a,Plus[b,c]] Times[rest];
+Times[x_,x_,rest___]:=Power[x,2] Times[rest]
+Times[Power[a_,b_],Power[a_,c_],rest___]:=Power[a,Plus[b,c]] Times[rest]

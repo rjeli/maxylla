@@ -26,9 +26,10 @@ impl Env {
         let entries = fs::read_dir("stdlib").unwrap();
         for entry in entries {
             let path = entry.unwrap().path();
-            println!("evaling stdlib {}", path.display());
+            println!("parsing stdlib {}", path.display());
             let contents = fs::read_to_string(path).unwrap();
             let parsed = parse(&contents).unwrap();
+            println!("evaling stdlib");
             env.eval(&parsed).unwrap();
         }
         env

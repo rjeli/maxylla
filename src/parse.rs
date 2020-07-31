@@ -2,7 +2,8 @@ use crate::{f, s, types::Expr};
 
 // https://reference.wolfram.com/language/tutorial/OperatorInputForms.html
 peg::parser! { pub grammar maxylla_parser() for str {
-    rule _() = (" " / "\n" / ("(*" (!("*)") [_])* "*)"))*
+    rule _() = quiet!{(" " / ("(*" (!("*)") [_])* "*)"))*} / expected!("whitespace")
+    rule sep() = quiet!{([';'|'\n'] _)+} / expected!("statement separator (newline or semicolon)")
     rule letters() -> &'input str = $(['a'..='z'|'A'..='Z'|'`']+)
     rule blank() -> Expr = us:$("_"*<1,3>) ms:sym()? {
         let mut v = match us.len() {
@@ -18,17 +19,22 @@ peg::parser! { pub grammar maxylla_parser() for str {
         Expr::Form(v)
     }
     rule slot() -> Expr = "#" { f![Slot, n!(1)] }
-    rule sym() -> Expr = ls:letters() mb:blank()? {
+    rule sym() -> Expr = ls:letters() mb:blank()? dot:"."? {
         let s = Expr::Sym(ls.to_owned());
-        match mb {
+        let p = match mb {
             Some(b) => f![Pattern, s, b],
             None => s,
+        };
+        if dot.is_some() {
+            f![Optional, p]
+        } else {
+            p
         }
     }
     rule num() -> i32 = n:$(['0'..='9']+) { n.parse().unwrap() }
     pub rule expr() -> Expr = precedence! {
-        x:@ ";" _ y:(@) { f![CompoundExpression, x, y] }
-        x:@ ";" _ { f![CompoundExpression, x, Expr::null()] }
+        x:@ sep() y:(@) { f![CompoundExpression, x, y] }
+        x:@ sep() { f![CompoundExpression, x, Expr::null()] }
         --
         x:@ "=" _ y:(@) { f![Set, x, y] }
         x:@ ":=" _ y:(@) { f![SetDelayed, x, y] }
@@ -59,7 +65,13 @@ peg::parser! { pub grammar maxylla_parser() for str {
         x:(@) "-" _ y:@ { f![Plus, x, f![Times, Expr::Num(-1), y]] }
         --
         x:(@) "*" _ y:@ { f![Times, x, y] }
-        x:(@) "/" _ y:@ { f![Times, x, f![Power, y, n!(-1)]] }
+        x:(@) "/" _ y:@ {
+            if x == n!(1) {
+                f![Power, y, n!(-1)]
+            } else {
+                f![Times, x, f![Power, y, n!(-1)]]
+            }
+        }
         x:(@) _ y:@ { f![Times, x, y] }
         --
         "-" x:(@) { f![Times, x, n!(-1)] }
@@ -88,7 +100,7 @@ peg::parser! { pub grammar maxylla_parser() for str {
         }
         "(" _ x:expr() ")" _ { x }
     }
-    pub rule prog() -> Expr = _ e:expr() { e }
+    pub rule prog() -> Expr = _ sep()? e:expr() { e }
 }}
 
 pub fn parse(s: &str) -> std::result::Result<Expr, Box<dyn std::error::Error>> {
@@ -135,5 +147,13 @@ mod tests {
 
     parses!(ands:
         "a&&b" => f![And, s!(a), s!(b)];
+    );
+
+    parses!(newlines:
+        "f[x]; g[y]" => f![CompoundExpression, f![f,s!(x)], f![g,s!(y)]];
+        "f[x];\ng[y]" => f![CompoundExpression, f![f,s!(x)], f![g,s!(y)]];
+        "f[x];\n" => f![CompoundExpression, f![f,s!(x)], s!(Null)];
+        "f[x];\n\n\n\n" => f![CompoundExpression, f![f,s!(x)], s!(Null)];
+        "(* comment *)\n\nf[x];\n\n\n\n" => f![CompoundExpression, f![f,s!(x)], s!(Null)];
     );
 }

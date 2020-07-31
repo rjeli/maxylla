@@ -126,9 +126,10 @@ pub fn unify(env: &Env, patt: &Expr, expr: &Expr) -> UnifyResult {
 
 #[derive(Debug, Eq, PartialEq)]
 enum Card {
+    Opt,
     One,
-    Many1,
     Many0,
+    Many1,
 }
 
 impl Card {
@@ -137,6 +138,7 @@ impl Card {
         match head {
             Some("BlankNullSequence") => Card::Many0,
             Some("BlankSequence") => Card::Many1,
+            Some("Optional") => Card::Opt,
             _ => Card::One,
         }
     }
@@ -156,6 +158,7 @@ fn detect_cardinality(patt: &Expr) -> (Card, Expr) {
             v.push(Expr::Form(new_body));
             (card, Expr::Form(v))
         }
+        Some("Optional") => (Card::from(patt), patt.as_form().unwrap()[1].clone()),
         _ => (Card::from(patt), patt.clone()),
     }
 }
@@ -171,6 +174,10 @@ fn unify_seq(env: &Env, patts: &[Expr], exprs: &[Expr]) -> UnifyResult {
         let (card, patt) = detect_cardinality(&patts[i]);
         let expr = match card {
             Card::One => exprs_ref.next().ok_or(UnifyError::Failure)?,
+            Card::Opt => match exprs_ref.next() {
+                Some(e) => e,
+                None => f![Default, patts[0].clone()],
+            },
             Card::Many0 => {
                 let mut v = vec![s!(Sequence)];
                 v.extend(exprs_ref);
@@ -183,23 +190,7 @@ fn unify_seq(env: &Env, patts: &[Expr], exprs: &[Expr]) -> UnifyResult {
                 Expr::Form(v)
             }
         };
-        /*
-        println!(
-            "i: {}/{} card: {:?} patt: {} expr: {}",
-            i,
-            patts.len() - 1,
-            card,
-            patt,
-            expr
-        );
-        */
         let new_subs = unify(env, &patt, &expr)?;
-        /*
-        for j in i..patts.len() {
-            patts[j] = new_subs.reify(&patts[j]);
-        }
-        subs.merge(new_subs);
-        */
         all_subs.push(new_subs);
     }
     // make sure we consumed the whole sequence

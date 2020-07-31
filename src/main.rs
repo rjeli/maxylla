@@ -1,14 +1,23 @@
 use clap::{App, Arg};
 use maxylla::{parse::parse, types::*};
 use rustyline::{error::ReadlineError, Editor};
+use std::fs;
 
 fn main() {
     println!("hello maxylla");
     let args = App::new("maxylla")
         .arg(Arg::with_name("command").short("c").takes_value(true))
+        .arg(Arg::with_name("file").short("f").takes_value(true))
         .get_matches();
 
     let mut env = Env::new();
+
+    if let Some(f) = args.value_of("file") {
+        println!("loading {}", f);
+        let contents = fs::read_to_string(f).unwrap();
+        let parsed = parse(&contents).unwrap();
+        env.eval(&parsed).unwrap();
+    }
 
     if let Some(c) = args.value_of("command") {
         match parse(c) {
