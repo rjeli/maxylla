@@ -64,7 +64,7 @@ pub fn unify(env: &Env, patt: &Expr, expr: &Expr) -> UnifyResult {
         (Expr::Form(pf), expr) => {
             let (ph, pt) = pf.split_first().unwrap();
             // check special patterns
-            match &*ph {
+            match &**ph {
                 Expr::Sym(phs) => match &phs[..] {
                     "Blank" => {
                         if pt.len() == 0 {
@@ -117,8 +117,20 @@ pub fn unify(env: &Env, patt: &Expr, expr: &Expr) -> UnifyResult {
                 _ => (),
             };
             // otherwise just unify as a form
-            let ef = expr.as_form().ok_or(UnifyError::Failure)?;
-            unify_seq(env, pf, ef).map(|s| s.add_depth())
+            if let Some(ef) = expr.as_form() {
+                if let Ok(subs) = unify_seq(env, pf, ef).map(|s| s.add_depth()) {
+                    return Ok(subs);
+                }
+            }
+            if let Some(phs) = ph.as_sym() {
+                if env.has_attr(phs, Attr::OneIdentity) && !expr.has_head(phs) {
+                    let wrapped = Expr::from_ref_vec(vec![ph.clone(), Rc::new(expr.clone())]);
+                    if let Ok(subs) = unify(env, patt, &wrapped) {
+                        return Ok(subs);
+                    }
+                }
+            }
+            fail()
         }
         (_, _) => fail(),
     }
@@ -150,51 +162,51 @@ fn detect_cardinality(patt: &Expr) -> (Card, Expr) {
         Some("Pattern") => {
             let pf = patt.as_form().unwrap();
             let mut v = vec![];
-            v.push(s!(Pattern));
+            v.push(Rc::new(s!(Pattern)));
             v.push(pf[1].clone());
-            let (card, _) = detect_cardinality(&pf[2]);
+            let (card, _) = detect_cardinality(&*pf[2]);
             let mut new_body = pf[2].as_form().unwrap().to_vec();
-            new_body[0] = s!(Blank);
-            v.push(Expr::Form(new_body));
-            (card, Expr::Form(v))
+            new_body[0] = Rc::new(s!(Blank));
+            v.push(Rc::new(Expr::from_ref_vec(new_body)));
+            (card, Expr::from_ref_vec(v))
         }
-        Some("Optional") => (Card::from(patt), patt.as_form().unwrap()[1].clone()),
+        Some("Optional") => (Card::from(patt), (*patt.as_form().unwrap()[1]).clone()),
         _ => (Card::from(patt), patt.clone()),
     }
 }
 
-fn unify_seq(env: &Env, patts: &[Expr], exprs: &[Expr]) -> UnifyResult {
+fn unify_seq(env: &Env, prefs: &[Eref], erefs: &[Eref]) -> UnifyResult {
     // simple greedy unification of sequences.
     // so f[x_,xs___] works, but f[xs___,x_] doesn't.
     // println!("unify_seq {:?} {:?}", patts, exprs);
-    let mut exprs = exprs.iter().map(|e| e.clone());
+    let mut erefs = erefs.iter().cloned();
     let mut all_subs = vec![];
-    for i in 0..patts.len() {
-        let exprs_ref = &mut exprs;
-        let (card, patt) = detect_cardinality(&patts[i]);
-        let expr = match card {
-            Card::One => exprs_ref.next().ok_or(UnifyError::Failure)?,
-            Card::Opt => match exprs_ref.next() {
+    for i in 0..prefs.len() {
+        let erefs_ref = &mut erefs;
+        let (card, patt) = detect_cardinality(&*prefs[i]);
+        let eref = match card {
+            Card::One => erefs_ref.next().ok_or(UnifyError::Failure)?,
+            Card::Opt => match erefs_ref.next() {
                 Some(e) => e,
-                None => f![Default, patts[0].clone()],
+                None => Rc::new(f![Default, (*prefs[0]).clone()]),
             },
             Card::Many0 => {
-                let mut v = vec![s!(Sequence)];
-                v.extend(exprs_ref);
-                Expr::Form(v)
+                let mut v = vec![Rc::new(s!(Sequence))];
+                v.extend(erefs_ref);
+                Rc::new(Expr::from_ref_vec(v))
             }
             Card::Many1 => {
-                let mut v = vec![s!(Sequence)];
-                v.push(exprs_ref.next().ok_or(UnifyError::Failure)?);
-                v.extend(exprs_ref);
-                Expr::Form(v)
+                let mut v = vec![Rc::new(s!(Sequence))];
+                v.push(erefs_ref.next().ok_or(UnifyError::Failure)?);
+                v.extend(erefs_ref);
+                Rc::new(Expr::from_ref_vec(v))
             }
         };
-        let new_subs = unify(env, &patt, &expr)?;
+        let new_subs = unify(env, &patt, &*eref)?;
         all_subs.push(new_subs);
     }
     // make sure we consumed the whole sequence
-    guard(exprs.next() == None)?;
+    guard(erefs.next() == None)?;
     let mut subs = Subs::null();
     for s in all_subs {
         subs.merge(s)?;
@@ -221,9 +233,9 @@ impl Subs {
         match expr {
             Expr::Form(es) => {
                 let (eh, et) = es.split_first().unwrap();
-                match &*eh {
+                match &**eh {
                     Expr::Sym(ehs) if ehs == "Pattern" => {
-                        let name = match &et[0] {
+                        let name = match &*et[0] {
                             Expr::Sym(name) => name,
                             _ => panic!(),
                         };
@@ -235,7 +247,7 @@ impl Subs {
                     _ => (),
                 };
                 let es = es.iter().map(|e| self.reify(e)).collect::<Vec<_>>();
-                Expr::Form(es)
+                Expr::from_vec(es)
             }
             expr => expr.clone(),
         }
@@ -243,7 +255,9 @@ impl Subs {
     pub fn replace(&self, expr: &Expr) -> Expr {
         match expr {
             Expr::Sym(s) if self.subs.contains_key(s) => self.subs[s].clone(),
-            Expr::Form(es) => Expr::Form(es.iter().map(|e| self.replace(e)).collect::<Vec<_>>()),
+            Expr::Form(es) => {
+                Expr::from_vec(es.iter().map(|e| self.replace(e)).collect::<Vec<_>>())
+            }
             _ => expr.clone(),
         }
     }
@@ -272,12 +286,12 @@ impl Expr {
             names.insert(name.to_owned());
             let body = &es[2];
             let new_name = format!("{}~{}", name, key);
-            f![Pattern, Expr::Sym(new_name), body.clone()]
+            f![Pattern, Expr::Sym(new_name), (&**body).clone()]
         } else {
             match self {
-                Expr::Form(es) => Expr::Form(
+                Expr::Form(es) => Expr::from_vec(
                     es.iter()
-                        .map(|e| e.clone().patterns_to_gensyms(key, names))
+                        .map(|e| (&**e).clone().patterns_to_gensyms(key, names))
                         .collect(),
                 ),
                 e => e,
@@ -289,13 +303,13 @@ impl Expr {
             let es = self.as_form().unwrap();
             let body = &es[1];
             let cond = &es[2];
-            let new_cond = cond.clone().syms_to_gensyms(key, names);
-            f![Condition, body.clone(), new_cond]
+            let new_cond = (&**cond).clone().syms_to_gensyms(key, names);
+            f![Condition, (&**body).clone(), new_cond]
         } else {
             match self {
-                Expr::Form(es) => Expr::Form(
+                Expr::Form(es) => Expr::from_vec(
                     es.iter()
-                        .map(|e| e.clone().conds_to_gensyms(key, names))
+                        .map(|e| (&**e).clone().conds_to_gensyms(key, names))
                         .collect(),
                 ),
                 e => e,
@@ -305,9 +319,9 @@ impl Expr {
     pub fn syms_to_gensyms(self, key: usize, names: &HashSet<String>) -> Self {
         match self {
             Expr::Sym(s) if names.contains(&s) => Expr::Sym(format!("{}~{}", s, key)),
-            Expr::Form(es) => Expr::Form(
+            Expr::Form(es) => Expr::from_vec(
                 es.iter()
-                    .map(|e| e.clone().syms_to_gensyms(key, names))
+                    .map(|e| (&**e).clone().syms_to_gensyms(key, names))
                     .collect(),
             ),
             _ => self,

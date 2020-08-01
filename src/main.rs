@@ -7,7 +7,8 @@ fn main() {
     println!("hello maxylla");
     let args = App::new("maxylla")
         .arg(Arg::with_name("command").short("c").takes_value(true))
-        .arg(Arg::with_name("file").short("f").takes_value(true))
+        .arg(Arg::with_name("file").short("f").index(1).takes_value(true))
+        .arg(Arg::with_name("interactive").short("i"))
         .get_matches();
 
     let mut env = Env::new();
@@ -17,6 +18,9 @@ fn main() {
         let contents = fs::read_to_string(f).unwrap();
         let parsed = parse(&contents).unwrap();
         env.eval(&parsed).unwrap();
+        if !args.is_present("interactive") {
+            return;
+        }
     }
 
     if let Some(c) = args.value_of("command") {
@@ -29,7 +33,9 @@ fn main() {
                 println!("parse err: {}", err);
             }
         }
-        return;
+        if !args.is_present("interactive") {
+            return;
+        }
     }
 
     let mut rl = Editor::<()>::new();

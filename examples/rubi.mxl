@@ -1,0 +1,15 @@
+Print["Running rubi tests"]
+
+Load["../Rubi/Rubi/IntegrationUtilityFunctions.m"]
+Print["Loaded util functions"]
+
+EqQ[x_,y_] := x==y
+NeQ[x_,y_] := Not[x==y]
+
+Load["../Rubi/Rubi/IntegrationRules/1 Algebraic functions/1.1 Binomial products/1.1.1 Linear/1.1.1.1 (a+b x)^m.m"]
+
+Print["1/x:"]
+Print[Int[1/x,x]]
+
+Print["x:"]
+Print[Int[x,x]]

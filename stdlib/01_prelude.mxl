@@ -3,6 +3,7 @@
 (* Bootstrap SetDelayed *)
 
 Prim`SetAttributes[Prim`AddDownValue,{HoldRest}]
+(* the core SetDelayed syntax, f[x_] := rhs *)
 Prim`AddDownValue[SetDelayed,SetDelayed[f_[xs___],rhs_],Prim`AddDownValue[f,f[xs],rhs]]
 Prim`SetAttributes[SetDelayed,{HoldAll}]
 
@@ -13,13 +14,28 @@ SetAttributes[Hold,{HoldAll}]
 SetAttributes[HoldPattern,{HoldAll}]
 SetAttributes[Set,{HoldFirst}]
 SetAttributes[RuleDelayed,{HoldRest}]
+SetAttributes[String,{HoldAll}]
 
+(* assigning a value to a symbol, x:=0 *)
+SetAttributes[Prim`AddOwnValue,{HoldAll}]
 SetDelayed[s_Symbol,x_]:=Prim`AddOwnValue[s,x]
+
+(* function syntax with condition *)
 SetAttributes[Condition,{HoldAll}]
+(* f[x_] /; cond := rhs *)
 SetDelayed[Verbatim[Condition][f_[xs___],cond_],rhs_]:=Prim`AddDownValue[f,Condition[f[xs],cond],rhs]
+(* f[x_] := rhs /; cond *)
+SetDelayed[f_[xs___],Verbatim[Condition][rhs_,cond_]]:=Prim`AddDownValue[f,Condition[f[xs],cond],rhs]
+
+(* destructuring syntax: {x,y} := {0,1} *)
 SetDelayed[{xs___},{rhs___}]:=ZipWith[SetDelayed,{xs},{rhs}]
+
+(* subvalues: f[x_][y_]:=z *)
 SetAttributes[Prim`AddSubValue,{HoldRest}]
 SetDelayed[f_[xs___][ys___],rhs_]:=Prim`AddSubValue[f,f[xs][ys],rhs]
+
+(* Set is the same as SetDelayed but with HoldFirst instead of HoldAll *)
+Set[xs___]:=SetDelayed[xs]
 
 Function[body_][a_] := body /. Slot[1] -> a
 
@@ -42,12 +58,20 @@ Length[h_[x_,xs___]]:=1+Length[h[xs]]
 Length[h_[]]:=0
 Repeat[x_,0]:={}
 Repeat[x_,n_]:=Cons[x,Repeat[x,n-1]]
+Nest[f_,x_,n_]:=f[Nest[f,x,n-1]]
+Nest[_,x_,0]:=x
 NestList[f_,x_,0]:={x}
 NestList[f_,x_,n_]:=Cons[x,f/@NestList[f,x,n-1]]
 Eval[Hold[x_]]:=x
 ZipWith[f_,{x_,xs___},{y_,ys___}]:=Cons[f[x,y],ZipWith[f,{xs},{ys}]]
 ZipWith[_,_,_]:={}
 Flip[f_][a_,b_]:=f[b,a]
+
+(* Prim Wrappers *)
+ExtractString[String[s_]]:=s
+ExtractString[x_]:=x
+Print[xs___]:=Prim`Print@@ExtractString/@{xs}
+Load[path_String]:=Prim`Load[path]
 
 (* Replacement *)
 
@@ -58,6 +82,11 @@ Replace[x_,{}]:=x
 
 SetAttributes[MatchQ,{HoldRest}]
 MatchQ[x_,patt_]:=Replace[x,patt->MatchQSentinel]==MatchQSentinel
+
+FreeQ[patt_][x_]:=FreeQ[x,patt]
+FreeQ[x_,patt_]/;MatchQ[x,patt]:=False
+FreeQ[f_[xs___],patt_] := FreeQ[f,patt] && And @@ FreeQ[patt] /@ {xs}
+FreeQ[x_,patt_]:=True
 
 ReplaceAll[rules_][x_]:=ReplaceAll[x,rules]
 ReplaceAll[x_,rules_]:=ReplaceAllCheck[rules,x,Replace[x,rules]]
@@ -75,11 +104,17 @@ ReplaceRepeatedCheck[rules_,before_,after_] := ReplaceRepeatedCheck[rules,after,
 
 Equal[x_,x_]:=True
 Equal[_,_]:=False
-And[True,True]:=True
-And[_,_]:=False
+
+SetAttributes[And,{Flat,Orderless,OneIdentity}]
+And[True,rest___]:=And[rest]
+And[False,rest___]:=False
+And[]:=True
+
 SetAttributes[Or,{Flat,HoldAll,OneIdentity}]
-Or[False,False]:=False
-Or[_,_]:=True
+Or[True,rest___]:=True
+Or[False,rest___]:=Or[rest]
+Or[]:=False
+
 Not[True]:=False
 Not[False]:=True
 
@@ -89,15 +124,44 @@ Greater[x_Integer,y_Integer]:=Prim`Cmp[x,y]==GT
 Less[x_Integer,y_Integer]:=Prim`Cmp[x,y]==LT
 
 SetAttributes[Plus,{Flat,Orderless,OneIdentity}]
+Default[Plus]:=0
 Plus[x_Integer,y_Integer,rest___]:=Prim`Plus[x,y]+Plus[rest]
 Plus[0,rest___]:=Plus[rest]
 Plus[]:=0
 
 SetAttributes[Times,{Flat,Orderless,OneIdentity}]
+Default[Times]:=1
 Times[x_Integer,y_Integer,rest___]:=Prim`Times[x,y] Times[rest]
 Times[0,rest___]:=0
 Times[1,rest___]:=Times[rest]
 Times[]:=1
 
+SetAttributes[Power,{OneIdentity}]
+Default[Power]:=1
+Power[1,_]:=1
+Power[0,_]:=0
+Power[x_,1]:=x
+Power[x_,0]:=1
+Power[0,0]:=Indet
+
 Times[x_,x_,rest___]:=Power[x,2] Times[rest]
 Times[Power[a_,b_],Power[a_,c_],rest___]:=Power[a,Plus[b,c]] Times[rest]
+
+Mod[n_,m_]/;(n-m>-1):=Mod[n-m,m]
+Mod[n_,m_]:=n
+
+GCD[a_,a_]:=a
+GCD[a_Integer,b_Integer]/;b==0:=a
+GCD[a_Integer,b_Integer]:=GCD[b,Mod[a,b]]
+
+EvenQ[n_]:=Mod[n,2]==0
+OddQ[n_]:=Mod[n,2]==1
+
+IntDiv[n_,n_]:=1
+IntDiv[n_,m_]:=1+IntDiv[n-m,m]
+
+Times[n_,Power[m_,-1]] /; GCD[n,m]>1 := Times[IntDiv[n,GCD[n,m]], Power[IntDiv[m,GCD[n,m]],-1]]
+
+(* Other *)
+Sleep[secs_Integer]:=Prim`Sleep[secs]
+MicrosSinceEpoch[]:=Prim`MicrosSinceEpoch[]

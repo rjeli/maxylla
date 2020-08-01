@@ -3,17 +3,21 @@ use std::collections::HashMap;
 use std::fmt;
 use strum_macros::EnumString;
 
+pub use std::rc::Rc;
+
+pub type Eref = Rc<Expr>;
+
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Expr {
     Sym(String),
-    Num(i32),
-    Form(Vec<Expr>),
+    Num(i64),
+    Form(Vec<Eref>),
 }
 
 #[macro_export]
 macro_rules! f {
     ( $h:expr $(, $t:expr )* $(,)? ) => (
-        Expr::Form(vec![Expr::Sym(stringify!($h).to_string()), $( $t ),* ])
+        Expr::from_vec(vec![Expr::Sym(stringify!($h).to_string()), $( $t ),* ])
     );
 }
 // (
@@ -24,7 +28,7 @@ macro_rules! f_args {
         let mut v: Vec<Expr> = vec![s!($h)];
         // v.extend_from_slice($t);
         v.extend($t);
-        Expr::Form(v)
+        Expr::from_vec(v)
     }};
 }
 
@@ -98,19 +102,25 @@ impl Expr {
             Expr::Num(n) => format!("{}", n),
         }
     }
+    pub fn from_vec(v: Vec<Expr>) -> Self {
+        Expr::Form(v.into_iter().map(|e| Rc::new(e)).collect())
+    }
+    pub fn from_ref_vec(v: Vec<Eref>) -> Self {
+        Expr::Form(v)
+    }
     pub fn as_sym(&self) -> Option<&str> {
         match self {
             Expr::Sym(s) => Some(s),
             _ => None,
         }
     }
-    pub fn as_num(&self) -> Option<i32> {
+    pub fn as_num(&self) -> Option<i64> {
         match self {
             Expr::Num(n) => Some(*n),
             _ => None,
         }
     }
-    pub fn as_form(&self) -> Option<&Vec<Expr>> {
+    pub fn as_form(&self) -> Option<&Vec<Eref>> {
         match self {
             Expr::Form(es) => Some(es),
             _ => None,
@@ -126,25 +136,25 @@ impl Expr {
     pub fn has_head(&self, h: &str) -> bool {
         self.head() == Some(h)
     }
-    pub fn flat(self, h: &str) -> Vec<Expr> {
+    pub fn flat(self, h: &str) -> Vec<Eref> {
         if self.has_head(h) {
             self.as_form().unwrap()[1..].to_vec()
         } else {
-            vec![self]
+            vec![Rc::new(self)]
         }
     }
-    pub fn flatten_seqs(exprs: &[Expr]) -> Vec<Expr> {
-        let mut v: Vec<Expr> = vec![];
+    pub fn flatten_seqs(exprs: &[Eref]) -> Vec<Eref> {
+        let mut v = vec![];
         for e in exprs {
-            match e {
+            match &**e {
                 Expr::Form(es) => {
                     let (head, args) = es.split_first().unwrap();
                     if head.as_sym() == Some("Sequence") {
                         v.extend(Expr::flatten_seqs(args));
                     } else {
-                        let mut e2: Vec<Expr> = Expr::flatten_seqs(&[head.clone()]);
+                        let mut e2 = Expr::flatten_seqs(&[head.clone()]);
                         e2.extend(Expr::flatten_seqs(args));
-                        v.push(Expr::Form(e2));
+                        v.push(Rc::new(Expr::from_ref_vec(e2)));
                     }
                 }
                 _ => v.push(e.clone()),
@@ -212,9 +222,9 @@ pub enum Attr {
 #[derive(Debug, Default, Clone)]
 pub struct Env {
     pub attrs: HashMap<String, Vec<Attr>>,
-    pub owns: HashMap<String, Expr>,
-    pub downs: HashMap<String, Vec<(Expr, Expr)>>,
-    pub subs: HashMap<String, Vec<(Expr, Expr)>>,
+    pub owns: HashMap<String, Eref>,
+    pub downs: HashMap<String, Vec<(Eref, Eref)>>,
+    pub subs: HashMap<String, Vec<(Eref, Eref)>>,
     pub trace: bool,
 }
 

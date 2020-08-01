@@ -1,0 +1,33 @@
+Print["running benchmarks"]
+
+SetAttributes[Bench,{HoldAll}];
+BenchTotal=0
+Bench[name_,expr_]:=(
+    before=MicrosSinceEpoch[];
+    Eval[expr];
+    after=MicrosSinceEpoch[];
+    diff=after-before;
+    Print[name,"-",diff,"us"];
+    BenchTotal=BenchTotal+diff;
+)
+
+Bench["repeat x 100 times",
+    Repeat[x,100];
+]
+
+Bench["log simplification",
+    rules := {Log[x_ y_]->Log[x]+Log[y], Log[x_^k_]->k Log[x]};
+    Log[a (b c^d)^e] //. rules;
+]
+
+Bench["large orderless Plus",
+    Plus[a,1,b,2,c,3,d,4,e,5,f,6];
+]
+
+Bench["NestList[collatz,12,10]",
+    collatz[n_]/;EvenQ[n]:=n/2;
+    collatz[n_]/;OddQ[n]:=3n+1;
+    NestList[collatz,12,10];
+]
+
+Print["Total:", BenchTotal]
